@@ -1,0 +1,4 @@
+interface:
+  display_name: "Spine 原立绘眨眼"
+  short_description: "从原立绘制作并逐帧验收无身体变形的 Spine 眨眼动画"
+  default_prompt: "使用 $spine-original-art-blink 从这张原立绘制作只改变眼睛的 Spine 眨眼动画，并完成原生逐帧验收。"

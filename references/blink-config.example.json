@@ -1,0 +1,22 @@
+{
+  "feather_radius": 0.8,
+  "color_match_ring": 7,
+  "eyes": [
+    {
+      "name": "left",
+      "target_box": [514, 150, 562, 190],
+      "half_source": "./eye_left_half_source.png",
+      "half_source_box": null,
+      "closed_source_box": [514, 150, 562, 190],
+      "mask_polygon": [[8, 20], [16, 16], [36, 18], [44, 23], [43, 33], [27, 35], [10, 29]]
+    },
+    {
+      "name": "right",
+      "target_box": [560, 157, 597, 197],
+      "half_source": "./eye_right_half_source.png",
+      "half_source_box": null,
+      "closed_source_box": [560, 157, 597, 197],
+      "mask_polygon": [[8, 22], [15, 16], [31, 17], [36, 22], [35, 33], [22, 36], [10, 31]]
+    }
+  ]
+}
