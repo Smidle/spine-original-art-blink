@@ -13,8 +13,9 @@
 
 ## 1. 目标与适用边界
 
-把单张透明原立绘制作成只包含眨眼的 Spine 第一阶段工程。最终画面
-只有双眼变化；身体、手脚、头发、衣服、胸部和挂件逐像素固定。
+把单张透明原立绘制作成只包含眼睛与眉毛联动的 Spine 第一阶段工程。
+最终画面只允许双眼和两条眉毛在批准区域内变化；身体、手脚、头发、
+衣服、胸部和挂件逐像素固定。
 
 此流程用于先验收眼睛，不用于完整 Live2D 分层。只有用户确认眨眼
 后，才能另立阶段讨论身体切片、骨骼、网格、呼吸和次级运动。
@@ -57,6 +58,10 @@ Spine 的附件关键帧放在 0、34、35、37、39、41、96。附件状态会
 
 - 检查生成图全身是否漂移。即使全身发生变化，只要眼部局部可用，
   也只能裁取眼部并通过遮罩合回原图；不能采用生成后的身体。
+- 制作 v1 眉毛联动时，分别对已批准的半闭眼图与闭眼图生成参考。
+  提示词只允许眉毛随眼皮轻微下压或放松，禁止修改眼睛、肤色、刘海、
+  脸型、身体或画布。即使生成图整体重绘，也只能把眉毛批准框内的
+  局部像素作为参考。
 
 ### Spine
 
@@ -163,6 +168,82 @@ python3 scripts/build_eye_states.py \
 - 头发没有被眼部贴图覆盖；
 - 非眼部像素没有任何改变。
 
+### 4.6 生成 v1 眉毛参考
+
+只在眼睛三状态已经通过验收后开始眉毛：
+
+1. 以已批准的 `character_half.png` 生成半闭眼眉毛参考。
+2. 以已批准的 `character_closed.png` 生成闭眼眉毛参考。
+3. 使用 imagegen 精确对象编辑模式，要求：
+   - 半闭：眉毛轻微下压；
+   - 全闭：眉毛继续轻微下压并放松；
+   - 眉毛粗细、颜色和角色神态保持原画风格；
+   - 眼睛状态、肤色、刘海、脸型、饰品、身体、Alpha 和画布不变。
+4. 把生成结果保存为完整画布参考，但禁止直接替换正式贴图。
+5. 在原分辨率确认两张参考里的眉毛位置可用。生成图其他区域即使看似
+   正确，也一律不采用。
+
+### 4.7 配置并生成 v1 审核候选
+
+复制 `references/brow-config-v1.example.json`，为每条眉毛设置：
+
+- `box`：完整画布坐标；
+- `polygon`：相对于框左上角的羽化多边形；
+- `feather_radius`：默认约 1 px；
+- `review_crop`：审核接触表与循环预览的脸部范围。
+
+运行：
+
+```bash
+python3 scripts/build_eyebrow_states_v1.py \
+  --open /path/eye-only/character_open.png \
+  --half /path/eye-only/character_half.png \
+  --closed /path/eye-only/character_closed.png \
+  --half-reference /path/generated-half-brow-reference.png \
+  --closed-reference /path/generated-closed-brow-reference.png \
+  --config /path/brow-config-v1.json \
+  --output-dir /path/review-eyebrow-v1
+```
+
+脚本按 v1 流程执行：
+
+1. 完整保留已批准的开眼、半闭和闭眼基底。
+2. 在每个眉毛框外环采样基底与生成参考的 RGB 中位数色差。
+3. 对生成参考的眉毛局部做颜色平移。
+4. 只在批准的眉毛羽化多边形内合成。
+5. 开眼候选逐字节复制原开眼图。
+6. 输出半闭、闭眼候选、34–41 帧接触表、无损 WebP 循环和
+   `eyebrow-blink-review-qa.json`。
+7. 报告必须保持：
+   - `formal_project_modified: false`
+   - `skill_modified: false`
+   - 两个状态的 `changed_outside_brow_regions: false`
+
+### 4.8 v1 人工审核门
+
+在修改正式工程之前向用户展示：
+
+1. 34–41 帧接触表；
+2. 循环动态预览；
+3. 半闭与闭眼相对眼部基底的差异框；
+4. 明确声明正式 `.spine`、正式贴图和 Skill 尚未修改。
+
+重点检查眉毛幅度、左右透视、眉毛与刘海交界、旧眉位置、肤色闪变和
+生成参考带来的局部色差。用户未明确批准时，只能继续修改独立审核
+目录；不得写入正式工程或 Skill。
+
+### 4.9 批准后写入正式工程
+
+获得明确批准后：
+
+1. 把眼部基底复制到独立 `source-eye-states` 目录，避免以后对已合成
+   的眉毛重复应用 v1 脚本。
+2. 保持正式 `character_open.png` 字节不变。
+3. 用批准的 `candidate_half_brow.png` 和
+   `candidate_closed_brow.png` 更新正式半闭/闭眼贴图。
+4. 重新生成 Spine JSON 并重新导入 `.spine`，不能只依赖旧工程缓存。
+5. 重新导出全部 97 帧，再执行眼睛+眉毛联合区域的原生验收。
+
 ## 5. Spine 工程生成与检查
 
 ### 5.1 生成导入 JSON
@@ -245,9 +326,9 @@ mkdir -p /path/native-frames
 
 ### 6.2 坐标换算
 
-把原图眼框换算到 Spine 导出尺寸。例如导出比例为 75%，则所有坐标
-乘以 0.75，并为抗锯齿增加约 2–4 px 边界，形成
-`allowed-eye-box`。
+把原图的两个眼框和两个眉毛框分别换算到 Spine 导出尺寸。例如导出
+比例为 75%，则所有坐标乘以 0.75，并为抗锯齿增加约 2–4 px 边界。
+不要为了方便把允许框扩大到脸部或头发。
 
 ### 6.3 自动验证
 
@@ -260,7 +341,10 @@ python3 scripts/validate_blink_export.py \
   --fps 30 --duration 3.2 \
   --open-start 34 --half-in 35 --closed-in 37 \
   --half-out 39 --open-out 41 \
-  --allowed-eye-box X1 Y1 X2 Y2
+  --allowed-box EYE_LEFT_X1 EYE_LEFT_Y1 EYE_LEFT_X2 EYE_LEFT_Y2 \
+  --allowed-box EYE_RIGHT_X1 EYE_RIGHT_Y1 EYE_RIGHT_X2 EYE_RIGHT_Y2 \
+  --allowed-box BROW_LEFT_X1 BROW_LEFT_Y1 BROW_LEFT_X2 BROW_LEFT_Y2 \
+  --allowed-box BROW_RIGHT_X1 BROW_RIGHT_Y1 BROW_RIGHT_X2 BROW_RIGHT_Y2
 ```
 
 验证器检查：
@@ -269,8 +353,8 @@ python3 scripts/validate_blink_export.py \
 - 所有帧尺寸一致；
 - 0、34、41、末帧开眼一致；
 - 35=36、37=38、39=40；
-- 所有帧在眼框外与第 0 帧逐像素一致；
-- 状态转换差异框位于眼框内；
+- 所有帧在批准的眼睛与眉毛框外与第 0 帧逐像素一致；
+- 状态转换差异框位于批准框内；
 - 输出 34–41 帧接触表；
 - 输出无损 WebP 循环预览；
 - 验证导出 PNG 可由 Pillow 正常解码，不能只统计文件数量；
@@ -295,6 +379,8 @@ python3 scripts/validate_blink_export.py \
 | 闭眼出现矩形肤色块 | 使用了整块矩形贴图 | 缩小遮罩，只在眼睑多边形内合成 |
 | 37–38 帧位置偏移 | 眼框、源框或附件中心不一致 | 校正源框；禁止用 Spine 整体位移补偿 |
 | 闭眼颜色不同 | AI 参考肤色漂移 | 用半闭源外环做颜色中位数匹配 |
+| 眉毛附近肤色或刘海闪变 | 把生成参考整块合回 | 回到眼部基底，只在眉毛羽化多边形内重新生成 v1 候选 |
+| 眉毛候选重复叠加 | 正式贴图被当成眼部基底再次运行 | 使用保留的 `source-eye-states` 重建候选 |
 | 眼睛忽大忽小 | 对眼睛做了缩放 | 恢复原尺寸裁取，重新绘制状态 |
 | 手脚或腿变化 | 误用了生成整图或身体附件 | 以原图重建三状态并做眼框外像素检查 |
 | 播放无反应 | 动画未选择或左侧圆点未启用 | 选择 `blink_only` 并启用小圆点 |
@@ -308,9 +394,12 @@ python3 scripts/validate_blink_export.py \
 - 原立绘；
 - 两张半闭眼源；
 - 闭眼生成/绘制参考；
+- v1 半闭与闭眼眉毛生成参考；
 - 眼框配置；
-- 三张完整状态图；
-- 状态生成脚本和 QA；
+- 眉毛配置；
+- 眼部基底三状态；
+- 批准后的眼睛+眉毛三状态；
+- 眼部与眉毛状态生成脚本、候选审核 QA；
 - Spine 导入 JSON、工程和导出设置；
 - 原生帧、接触表、WebP 和 QA 报告。
 

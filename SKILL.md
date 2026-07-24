@@ -1,12 +1,13 @@
 ---
 name: spine-original-art-blink
-description: Create a high-fidelity blink-only Spine animation from one original illustration while preserving every non-eye pixel. Use for Spine or Live2D-style eye animation, open/half/closed eyelid states, fixing blink offsets or color seams, avoiding body slicing and ghosting, importing a minimal Spine project, and performing native frame-by-frame pixel QA before any breathing, hair, limb, clothing, or accessory animation begins.
+description: Create a high-fidelity eye-and-eyebrow blink-only Spine animation from one original illustration while preserving every unapproved pixel. Use for Spine or Live2D-style open/half/closed eyelid states, v1 eyebrow linkage, fixing blink offsets or color seams, avoiding body slicing and ghosting, importing a minimal Spine project, and performing review-first plus native frame-by-frame pixel QA before any breathing, hair, limb, clothing, or accessory animation begins.
 ---
 
 # Spine Original-Art Blink
 
 Build and approve blinking as an isolated first milestone. Keep the complete
-original character intact and change only the two eye regions.
+original character intact and change only explicitly approved eye and eyebrow
+regions.
 
 ## Required reading
 
@@ -15,23 +16,29 @@ task actions. It contains the tool routing, every production step, the Spine
 commands, and the acceptance checklist.
 
 Use [references/blink-config.example.json](references/blink-config.example.json)
-when preparing the eye-state build configuration.
+for eye states. Read
+[references/brow-config-v1.example.json](references/brow-config-v1.example.json)
+when adding v1 eyebrow linkage.
 
 ## Non-negotiable constraints
 
 - Preserve the original illustration as the source of truth.
 - Keep `character_open.png` byte-identical to the original file.
 - Use full-canvas, identically aligned open, half, and closed states.
-- Change pixels only inside explicitly approved eye boxes.
+- Change pixels only inside explicitly approved eye and eyebrow boxes.
 - Do not slice, transform, key, or animate the body, hair, limbs, clothing, or
   accessories during this milestone.
 - Do not resize an eye patch to make it fit. Correct the source box or redraw
   the eye state instead.
 - Never use an AI-generated full character as the replacement illustration.
-  Use generated output only as a local eyelid reference after visual review.
+  Use generated output only as a local eyelid or eyebrow reference after
+  visual review.
 - Import a minimal Spine skeleton: one root bone, one slot, three attachments,
   one attachment timeline, and no root transform timeline.
-- Export native Spine frames and prove that every non-eye pixel is fixed.
+- Build eyebrow states in an isolated review directory. Do not change formal
+  images, the Spine project, or this Skill before explicit user approval.
+- Export native Spine frames and prove that every pixel outside the approved
+  eye and eyebrow boxes is fixed.
 - Stop after blink acceptance. Do not infer permission to begin idle motion.
 
 ## Production workflow
@@ -46,13 +53,21 @@ when preparing the eye-state build configuration.
 6. Create a build config from the bundled example.
 7. Run `scripts/build_eye_states.py`.
 8. Inspect the three full-canvas states and the generated QA report.
-9. Run `scripts/build_spine_blink_json.py`.
-10. Import the JSON into Spine with the CLI, open the project, and inspect the
+9. If eyebrows should link to the blink, generate full-canvas half/closed
+   eyebrow references, but treat them only as local visual sources.
+10. Run `scripts/build_eyebrow_states_v1.py` against the approved eye-only
+    states. Inspect its contact sheet, loop, and review-only QA. Stop until the
+    user explicitly approves the candidate.
+11. Preserve the eye-only source states, then promote the approved candidate
+    half/closed images. Keep open byte-identical.
+12. Run `scripts/build_spine_blink_json.py`.
+13. Import the JSON into Spine with the CLI, open the project, and inspect the
     `blink_only` animation in the Spine UI.
-11. Export PNG frames from Spine at the intended FPS.
-12. Run `scripts/validate_blink_export.py`.
-13. Inspect the native contact sheet and animated preview.
-14. Retain only the approved project, its exact source chain, and QA artifacts.
+14. Export PNG frames from Spine at the intended FPS.
+15. Run `scripts/validate_blink_export.py` with every approved eye and eyebrow
+    change box.
+16. Inspect the native contact sheet and animated preview.
+17. Retain only the approved project, its exact source chain, and QA artifacts.
 
 ## Script usage
 
@@ -68,6 +83,32 @@ python3 scripts/build_eye_states.py \
   --config /path/blink-config.json \
   --output-dir /path/images-blink-only
 ```
+
+Build a review-only v1 eyebrow-linked candidate:
+
+```bash
+python3 scripts/build_eyebrow_states_v1.py \
+  --open /path/eye-only/character_open.png \
+  --half /path/eye-only/character_half.png \
+  --closed /path/eye-only/character_closed.png \
+  --half-reference /path/generated-half-brow-reference.png \
+  --closed-reference /path/generated-closed-brow-reference.png \
+  --config /path/brow-config-v1.json \
+  --output-dir /path/review-eyebrow-v1
+```
+
+The v1 builder performs a median local color shift, composites only the two
+feathered eyebrow polygons, keeps the open file byte-identical, and emits:
+
+- `candidate_open.png`
+- `candidate_half_brow.png`
+- `candidate_closed_brow.png`
+- `eyebrow-blink-review-contact.png`
+- `eyebrow-blink-review-loop.webp`
+- `eyebrow-blink-review-qa.json`
+
+Require `changed_outside_brow_regions: false` for both half and closed.
+Present the contact sheet and loop to the user before promoting either image.
 
 Build the Spine import JSON:
 
@@ -121,7 +162,10 @@ python3 scripts/validate_blink_export.py \
   --fps 30 --duration 3.2 \
   --open-start 34 --half-in 35 --closed-in 37 \
   --half-out 39 --open-out 41 \
-  --allowed-eye-box X1 Y1 X2 Y2
+  --allowed-box EYE_LEFT_X1 EYE_LEFT_Y1 EYE_LEFT_X2 EYE_LEFT_Y2 \
+  --allowed-box EYE_RIGHT_X1 EYE_RIGHT_Y1 EYE_RIGHT_X2 EYE_RIGHT_Y2 \
+  --allowed-box BROW_LEFT_X1 BROW_LEFT_Y1 BROW_LEFT_X2 BROW_LEFT_Y2 \
+  --allowed-box BROW_RIGHT_X1 BROW_RIGHT_Y1 BROW_RIGHT_X2 BROW_RIGHT_Y2
 ```
 
 ## Acceptance gates
@@ -131,16 +175,19 @@ Require all of the following:
 - Open output hash equals the original hash.
 - All three states have identical dimensions, alpha handling, scale, and
   placement.
+- The review candidate does not modify formal files before user approval.
+- Candidate half/closed changes relative to the eye-only bases are inside the
+  approved eyebrow regions.
 - Open-to-half and half-to-closed difference boxes are inside the approved eye
-  region.
-- All native frames are identical outside the approved eye region.
+  and eyebrow regions.
+- All native frames are identical outside every approved change region.
 - Repeated states are pixel-identical.
 - The end frame loops to the open state without a jump.
 - Frame order is open → half → closed → half → open.
 - Spine reports one bone, one slot, three attachments, and one animation.
 - The root bone has no animation timeline.
 - Visual review shows no rectangle, color seam, duplicate edge, offset eyelid,
-  face drift, or antialias halo.
+  face drift, antialias halo, or unexpected generated-image change.
 
 If any gate fails, fix the eye source or alignment and repeat from state
 generation. Do not compensate by moving the whole attachment in Spine.

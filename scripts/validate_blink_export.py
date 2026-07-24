@@ -24,7 +24,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--closed-in", type=int, default=37)
     parser.add_argument("--half-out", type=int, default=39)
     parser.add_argument("--open-out", type=int, default=41)
-    parser.add_argument("--allowed-eye-box", type=int, nargs=4, required=True)
+    parser.add_argument("--allowed-eye-box", type=int, nargs=4)
+    parser.add_argument(
+        "--allowed-box",
+        type=int,
+        nargs=4,
+        action="append",
+        help="Repeat for each approved eye or eyebrow change region.",
+    )
     parser.add_argument("--contact-crop", type=int, nargs=4)
     return parser.parse_args()
 
@@ -41,13 +48,14 @@ def pixel_identical(first: Image.Image, second: Image.Image) -> bool:
     return effective_difference(first, second).getbbox() is None
 
 
-def outside_box_identical(
+def outside_boxes_identical(
     first: Image.Image,
     second: Image.Image,
-    box: tuple[int, int, int, int],
+    boxes: list[tuple[int, int, int, int]],
 ) -> bool:
     difference = effective_difference(first, second)
-    difference.paste(0, box)
+    for box in boxes:
+        difference.paste(0, box)
     return difference.getbbox() is None
 
 
@@ -144,7 +152,13 @@ def main() -> None:
     if len(dimensions) != 1:
         raise ValueError(f"Frame dimensions differ: {dimensions}")
 
-    allowed_box = tuple(args.allowed_eye_box)
+    allowed_boxes = [
+        tuple(box) for box in (args.allowed_box or [])
+    ]
+    if args.allowed_eye_box:
+        allowed_boxes.append(tuple(args.allowed_eye_box))
+    if not allowed_boxes:
+        raise ValueError("Provide --allowed-eye-box or at least one --allowed-box")
     last = expected_count - 1
     repeated_checks = {
         "open_0_equals_open_start": pixel_identical(frames[0], frames[args.open_start]),
@@ -157,21 +171,21 @@ def main() -> None:
         "open_out_equals_last": pixel_identical(frames[args.open_out], frames[last]),
     }
     transitions = {
-        "open_to_half": outside_box_identical(
-            frames[args.open_start], frames[args.half_in], allowed_box
+        "open_to_half": outside_boxes_identical(
+            frames[args.open_start], frames[args.half_in], allowed_boxes
         ),
-        "half_to_closed": outside_box_identical(
-            frames[args.half_in], frames[args.closed_in], allowed_box
+        "half_to_closed": outside_boxes_identical(
+            frames[args.half_in], frames[args.closed_in], allowed_boxes
         ),
-        "closed_to_half": outside_box_identical(
-            frames[args.closed_in + 1], frames[args.half_out], allowed_box
+        "closed_to_half": outside_boxes_identical(
+            frames[args.closed_in + 1], frames[args.half_out], allowed_boxes
         ),
-        "half_to_open": outside_box_identical(
-            frames[args.half_out + 1], frames[args.open_out], allowed_box
+        "half_to_open": outside_boxes_identical(
+            frames[args.half_out + 1], frames[args.open_out], allowed_boxes
         ),
     }
-    every_frame_fixed_outside_eyes = all(
-        outside_box_identical(frames[0], frames[index], allowed_box)
+    every_frame_fixed_outside_allowed_regions = all(
+        outside_boxes_identical(frames[0], frames[index], allowed_boxes)
         for index in expected_indices
     )
     report = {
@@ -181,10 +195,12 @@ def main() -> None:
         "fps": args.fps,
         "duration_seconds": args.duration,
         "animation": "blink_only",
-        "allowed_eye_box": list(allowed_box),
+        "allowed_change_boxes": [list(box) for box in allowed_boxes],
         "repeated_state_pixel_identity": repeated_checks,
-        "transitions_change_eye_local_only": transitions,
-        "every_frame_fixed_outside_eyes": every_frame_fixed_outside_eyes,
+        "transitions_change_only_allowed_regions": transitions,
+        "every_frame_fixed_outside_allowed_regions": (
+            every_frame_fixed_outside_allowed_regions
+        ),
         "diff_bboxes": {
             "open_to_half": effective_difference(
                 frames[args.open_start], frames[args.half_in]
@@ -194,7 +210,11 @@ def main() -> None:
             ).getbbox(),
         },
     }
-    if not all(repeated_checks.values()) or not all(transitions.values()) or not every_frame_fixed_outside_eyes:
+    if (
+        not all(repeated_checks.values())
+        or not all(transitions.values())
+        or not every_frame_fixed_outside_allowed_regions
+    ):
         report["status"] = "failed"
 
     report_path = args.report.expanduser().resolve()
@@ -205,6 +225,12 @@ def main() -> None:
         crop_box = tuple(args.contact_crop)
     else:
         width, height = dimensions[0]
+        allowed_box = (
+            min(box[0] for box in allowed_boxes),
+            min(box[1] for box in allowed_boxes),
+            max(box[2] for box in allowed_boxes),
+            max(box[3] for box in allowed_boxes),
+        )
         margin_x = max(40, (allowed_box[2] - allowed_box[0]) * 2)
         margin_y = max(40, (allowed_box[3] - allowed_box[1]) * 2)
         crop_box = (
